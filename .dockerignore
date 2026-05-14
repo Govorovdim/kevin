@@ -1,0 +1,14 @@
+.venv
+.env
+.git
+.gitignore
+.ruff_cache
+.mypy_cache
+.pytest_cache
+__pycache__
+kevin-ui
+node_modules
+*.egg-info
+.vscode
+.idea
+.zed

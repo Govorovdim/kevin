@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[oc]
+*.pyd
+build/
+dist/
+wheels/
+*.egg-info
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Virtual environments
+.venv
+venv/
+env/
+
+# SQLite
+*.db
+
+# Environment variables
+.env
+
+# IDEs — VSCode
+.vscode/
+
+# IDEs — JetBrains (PyCharm, IntelliJ, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# IDEs — Vim / Neovim
+*.swp
+*.swo
+*~
+
+# IDEs — Zed
+.zed/
+
+# IDEs — macOS
+.DS_Store
+
+# IDEs — Windows
+Thumbs.db
+desktop.ini
