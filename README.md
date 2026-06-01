@@ -4,7 +4,7 @@ Household financial planner — track income, expenses, assets, and liabilities.
 
 ## Demo
 
-A deployed demo is available at https://govorovdim.github.io/kevin-ui/
+A deployed demo is available at https://wackyduckling.com/kevin/
 
 - **User:** demo
 - **Password:** password
