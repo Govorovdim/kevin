@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.exc import IntegrityError
 
 from kevin.api.v1.dependencies import get_auth_service, get_current_user
@@ -30,6 +31,23 @@ def login(
 ):
     try:
         tokens = service.login(body.username, body.password)
+        return TokenResponse(**tokens)
+    except AuthenticationError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+@router.post("/token", response_model=TokenResponse)
+def token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    service: AuthService = Depends(get_auth_service),
+):
+    """OAuth2-compatible token endpoint for Swagger UI Authorize button."""
+    try:
+        tokens = service.login(form_data.username, form_data.password)
         return TokenResponse(**tokens)
     except AuthenticationError:
         raise HTTPException(

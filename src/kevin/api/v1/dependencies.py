@@ -1,5 +1,9 @@
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import (
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
+    OAuth2PasswordBearer,
+)
 from sqlmodel import Session
 
 from kevin.database import get_session
@@ -11,7 +15,8 @@ from kevin.repositories.user import UserRepository
 from kevin.repositories.user_household import UserHouseholdRepository
 from kevin.services.auth import AuthService
 
-bearer_scheme = HTTPBearer()
+bearer_scheme = HTTPBearer(auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
 
 def get_auth_service(session: Session = Depends(get_session)) -> AuthService:
@@ -24,11 +29,25 @@ def get_auth_service(session: Session = Depends(get_session)) -> AuthService:
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    oauth2_token: str | None = Depends(oauth2_scheme),
     service: AuthService = Depends(get_auth_service),
 ) -> User:
+    token = None
+    if credentials:
+        token = credentials.credentials
+    elif oauth2_token:
+        token = oauth2_token
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     try:
-        return service.get_user_from_token(credentials.credentials)
+        return service.get_user_from_token(token)
     except AuthenticationError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

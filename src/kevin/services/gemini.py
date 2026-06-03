@@ -1,0 +1,673 @@
+from decimal import Decimal
+from typing import Any
+
+from google import genai
+from google.genai import types
+from sqlmodel import Session, select
+
+from kevin.models.asset import Asset
+from kevin.models.expense import Expense
+from kevin.models.income import Income
+from kevin.models.liability import Liability
+from kevin.models.user_household import UserHousehold
+from kevin.repositories.asset import AssetRepository
+from kevin.repositories.expense import ExpenseRepository
+from kevin.repositories.household import HouseholdRepository
+from kevin.repositories.income import IncomeRepository
+from kevin.repositories.liability import LiabilityRepository
+from kevin.repositories.user_household import UserHouseholdRepository
+from kevin.services.asset import AssetService
+from kevin.services.expense import ExpenseService
+from kevin.services.income import IncomeService
+from kevin.services.liability import LiabilityService
+from kevin.services.overview import OverviewService
+from kevin.settings import settings
+
+
+class GeminiError(Exception):
+    pass
+
+
+SYSTEM_PROMPT = """You are Kevin, a household budget assistant. You can ONLY help with adding, removing, or querying financial records (expenses, income, assets, liabilities).
+
+For anything unrelated to household finances, respond: "I can only help with household finances."
+
+When the user asks to add or remove records, use the available tools. When they ask about their financial overview, use get_overview.
+
+Important rules:
+- Always confirm what you did after executing an action.
+- If the user doesn't specify month/year, use the provided current month and year from context.
+- If the user doesn't specify a household, use list_households first to find available ones. If they only have one household, use that one automatically.
+- When operating across all households, call the relevant tool once per household.
+- Amounts should be positive numbers.
+- Be concise and friendly.
+- The household_id is required for all operations except list_households.
+"""
+
+TOOL_DECLARATIONS = [
+    types.FunctionDeclaration(
+        name="list_households",
+        description="List all households the user has access to. Call this first if you need to know which households are available.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={},
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="add_expense",
+        description="Add a new expense record to a household budget",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="The household ID to add the expense to",
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER, description="Month (1-12)"
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year (e.g. 2025)"
+                ),
+                "title": types.Schema(
+                    type=types.Type.STRING,
+                    description="Name/description of the expense",
+                ),
+                "amount": types.Schema(
+                    type=types.Type.NUMBER, description="Amount spent"
+                ),
+            },
+            required=["household_id", "month", "year", "title", "amount"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="remove_expense",
+        description="Remove an expense record by its ID",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER, description="The household ID"
+                ),
+                "expense_id": types.Schema(
+                    type=types.Type.INTEGER, description="The expense ID to remove"
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER, description="Month (1-12)"
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year (e.g. 2025)"
+                ),
+            },
+            required=["household_id", "expense_id", "month", "year"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="add_income",
+        description="Add a new income record to a household budget",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="The household ID to add income to",
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER, description="Month (1-12)"
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year (e.g. 2025)"
+                ),
+                "title": types.Schema(
+                    type=types.Type.STRING,
+                    description="Source/description of the income",
+                ),
+                "amount": types.Schema(
+                    type=types.Type.NUMBER, description="Amount received"
+                ),
+            },
+            required=["household_id", "month", "year", "title", "amount"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="remove_income",
+        description="Remove an income record by its ID",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER, description="The household ID"
+                ),
+                "income_id": types.Schema(
+                    type=types.Type.INTEGER, description="The income ID to remove"
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER, description="Month (1-12)"
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year (e.g. 2025)"
+                ),
+            },
+            required=["household_id", "income_id", "month", "year"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="add_asset",
+        description="Add a new asset record (investment, property, etc.)",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="The household ID to add the asset to",
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER, description="Month (1-12)"
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year (e.g. 2025)"
+                ),
+                "title": types.Schema(
+                    type=types.Type.STRING, description="Name of the asset"
+                ),
+                "ticker": types.Schema(
+                    type=types.Type.STRING, description="Stock ticker symbol (optional)"
+                ),
+                "amount": types.Schema(
+                    type=types.Type.NUMBER, description="Quantity/units held"
+                ),
+                "bought_price": types.Schema(
+                    type=types.Type.NUMBER, description="Price per unit when bought"
+                ),
+                "current_price": types.Schema(
+                    type=types.Type.NUMBER, description="Current price per unit"
+                ),
+            },
+            required=["household_id", "month", "year", "title"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="remove_asset",
+        description="Remove an asset record by its ID",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER, description="The household ID"
+                ),
+                "asset_id": types.Schema(
+                    type=types.Type.INTEGER, description="The asset ID to remove"
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER, description="Month (1-12)"
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year (e.g. 2025)"
+                ),
+            },
+            required=["household_id", "asset_id", "month", "year"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="add_liability",
+        description="Add a new liability/debt record",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="The household ID to add the liability to",
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER, description="Month (1-12)"
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year (e.g. 2025)"
+                ),
+                "title": types.Schema(
+                    type=types.Type.STRING,
+                    description="Name/description of the liability",
+                ),
+                "amount": types.Schema(
+                    type=types.Type.NUMBER, description="Amount owed"
+                ),
+            },
+            required=["household_id", "month", "year", "title", "amount"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="remove_liability",
+        description="Remove a liability record by its ID",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER, description="The household ID"
+                ),
+                "liability_id": types.Schema(
+                    type=types.Type.INTEGER, description="The liability ID to remove"
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER, description="Month (1-12)"
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year (e.g. 2025)"
+                ),
+            },
+            required=["household_id", "liability_id", "month", "year"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="get_overview",
+        description="Get a financial overview/summary for a specific household, month or year",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="The household ID to get overview for",
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year to query"
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="Month to query (optional, omit for yearly overview)",
+                ),
+            },
+            required=["household_id", "year"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="search_records",
+        description="Search for financial records (expenses, income, assets, liabilities) by title/name across all or a specific household. Use this when the user asks to find, look up, or search for records.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "query": types.Schema(
+                    type=types.Type.STRING,
+                    description="Search term to match against record titles (case-insensitive partial match)",
+                ),
+                "record_type": types.Schema(
+                    type=types.Type.STRING,
+                    description="Type of record to search: 'expense', 'income', 'asset', 'liability', or 'all'",
+                ),
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="Optional: limit search to a specific household. Omit to search all households.",
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="Optional: limit search to a specific year",
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="Optional: limit search to a specific month",
+                ),
+            },
+            required=["query", "record_type"],
+        ),
+    ),
+]
+
+
+class GeminiService:
+    """
+    User-scoped Gemini AI service. Can operate across all households the user belongs to.
+
+    Usage:
+        service = GeminiService(session=..., user_id=..., year=..., month=...)
+        response_text, actions = service.chat(message, history)
+    """
+
+    def __init__(
+        self,
+        session: Session,
+        user_id: int,
+        year: int,
+        month: int,
+    ) -> None:
+        if not settings.gemini_api_key:
+            raise GeminiError("GEMINI_API_KEY is not configured")
+
+        self.client = genai.Client(api_key=settings.gemini_api_key)
+        self.model = "gemini-2.5-flash"
+        self.user_id = user_id
+        self.year = year
+        self.month = month
+        self.session = session
+
+        # Repositories
+        self.household_repo = HouseholdRepository(session)
+        self.user_household_repo = UserHouseholdRepository(session)
+
+        expense_repo = ExpenseRepository(session)
+        income_repo = IncomeRepository(session)
+        asset_repo = AssetRepository(session)
+        liability_repo = LiabilityRepository(session)
+
+        self.expense_service = ExpenseService(expense_repo)
+        self.income_service = IncomeService(income_repo)
+        self.asset_service = AssetService(asset_repo)
+        self.liability_service = LiabilityService(liability_repo)
+        self.overview_service = OverviewService(
+            expense_repo, income_repo, asset_repo, liability_repo
+        )
+
+    def _verify_household_access(self, household_id: int) -> None:
+        """Verify the user has access to the given household."""
+        if not self.user_household_repo.exists(self.user_id, household_id):
+            raise PermissionError(f"You don't have access to household {household_id}")
+
+    def chat(
+        self,
+        message: str,
+        history: list[Any],
+    ) -> tuple[str, list[dict[str, Any]]]:
+        """
+        Send a message to Gemini, handle function calls, return final response.
+
+        Args:
+            message: The user's message
+            history: List of ChatMessage objects with .role and .content
+
+        Returns:
+            Tuple of (response_text, actions_list)
+            where actions_list is [{"action": str, "success": bool, "detail": str}, ...]
+        """
+        try:
+            contents = self._build_contents(message, history)
+            actions: list[dict[str, Any]] = []
+
+            tools = types.Tool(function_declarations=TOOL_DECLARATIONS)
+            generate_config = types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                tools=[tools],
+            )
+
+            max_rounds = 10
+            for _ in range(max_rounds):
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=contents,
+                    config=generate_config,
+                )
+
+                if not response.candidates:
+                    raise GeminiError("No response from Gemini")
+
+                candidate = response.candidates[0]
+                function_calls = [
+                    part for part in candidate.content.parts if part.function_call
+                ]
+
+                if not function_calls:
+                    text_parts = [
+                        part.text for part in candidate.content.parts if part.text
+                    ]
+                    return "".join(text_parts), actions
+
+                # Process function calls
+                contents.append(candidate.content)
+
+                function_responses = []
+                for part in function_calls:
+                    fc = part.function_call
+                    tool_name = fc.name
+                    tool_args = dict(fc.args) if fc.args else {}
+
+                    result = self._execute_tool(tool_name, tool_args)
+                    actions.append(result)
+
+                    function_responses.append(
+                        types.Part.from_function_response(
+                            name=tool_name,
+                            response={
+                                "result": result["detail"],
+                                "success": result["success"],
+                            },
+                        )
+                    )
+
+                contents.append(types.Content(role="user", parts=function_responses))
+
+            return (
+                "I performed several actions but reached my processing limit. Please check your records.",
+                actions,
+            )
+
+        except GeminiError:
+            raise
+        except Exception as e:
+            raise GeminiError(f"Failed to communicate with Gemini: {str(e)}")
+
+    def _build_contents(
+        self,
+        message: str,
+        history: list[Any],
+    ) -> list[types.Content]:
+        contents: list[types.Content] = []
+
+        for entry in history:
+            role = "user" if entry.role == "user" else "model"
+            contents.append(
+                types.Content(
+                    role=role, parts=[types.Part.from_text(text=entry.content)]
+                )
+            )
+
+        context_prefix = (
+            f"[Context: current month={self.month}, current year={self.year}]\n"
+        )
+        contents.append(
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=context_prefix + message)],
+            )
+        )
+
+        return contents
+
+    def _execute_tool(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Execute a tool and return a standardized action result."""
+        try:
+            handler = getattr(self, f"_tool_{tool_name}", None)
+            if not handler:
+                return {
+                    "action": tool_name,
+                    "success": False,
+                    "detail": f"Unknown tool: {tool_name}",
+                }
+            detail = handler(args)
+            return {"action": tool_name, "success": True, "detail": detail}
+        except PermissionError as e:
+            return {"action": tool_name, "success": False, "detail": str(e)}
+        except Exception as e:
+            return {"action": tool_name, "success": False, "detail": str(e)}
+
+    def _tool_list_households(self, args: dict[str, Any]) -> str:
+        households = self.household_repo.list_by_user(self.user_id)
+        if not households:
+            return "You don't belong to any households yet."
+        items = [f"- {h.name} (id={h.id})" for h in households]
+        return "Your households:\n" + "\n".join(items)
+
+    def _tool_add_expense(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        expense = self.expense_service.create(
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+            args["title"],
+            Decimal(str(args["amount"])),
+        )
+        return f"Added expense '{expense.title}' for {expense.amount}"
+
+    def _tool_remove_expense(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        self.expense_service.delete(
+            int(args["expense_id"]),
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+        )
+        return f"Removed expense #{args['expense_id']}"
+
+    def _tool_add_income(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        income = self.income_service.create(
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+            args["title"],
+            Decimal(str(args["amount"])),
+        )
+        return f"Added income '{income.title}' for {income.amount}"
+
+    def _tool_remove_income(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        self.income_service.delete(
+            int(args["income_id"]),
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+        )
+        return f"Removed income #{args['income_id']}"
+
+    def _tool_add_asset(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        asset = self.asset_service.create(
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+            args["title"],
+            args.get("ticker"),
+            Decimal(str(args["amount"])) if args.get("amount") else None,
+            Decimal(str(args["bought_price"])) if args.get("bought_price") else None,
+            Decimal(str(args["current_price"])) if args.get("current_price") else None,
+        )
+        return f"Added asset '{asset.title}'"
+
+    def _tool_remove_asset(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        self.asset_service.delete(
+            int(args["asset_id"]),
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+        )
+        return f"Removed asset #{args['asset_id']}"
+
+    def _tool_add_liability(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        liability = self.liability_service.create(
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+            args["title"],
+            Decimal(str(args["amount"])),
+        )
+        return f"Added liability '{liability.title}' for {liability.amount}"
+
+    def _tool_remove_liability(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        self.liability_service.delete(
+            int(args["liability_id"]),
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+        )
+        return f"Removed liability #{args['liability_id']}"
+
+    def _tool_search_records(self, args: dict[str, Any]) -> str:
+        query = args["query"].lower()
+        record_type = args.get("record_type", "all")
+        household_id = args.get("household_id")
+        year = args.get("year")
+        month = args.get("month")
+
+        # Get accessible household IDs
+        if household_id:
+            self._verify_household_access(int(household_id))
+            household_ids = [int(household_id)]
+        else:
+            memberships = self.session.exec(
+                select(UserHousehold.household_id).where(
+                    UserHousehold.user_id == self.user_id
+                )
+            ).all()
+            household_ids = list(memberships)
+
+        results: list[str] = []
+
+        type_model_map: dict[str, type] = {
+            "expense": Expense,
+            "income": Income,
+            "asset": Asset,
+            "liability": Liability,
+        }
+
+        types_to_search = (
+            [type_model_map[record_type]]
+            if record_type != "all"
+            else list(type_model_map.values())
+        )
+
+        for model in types_to_search:
+            stmt = select(model).where(
+                model.household_id.in_(household_ids),
+                model.title.ilike(f"%{query}%"),
+            )
+            if year:
+                stmt = stmt.where(model.year == int(year))
+            if month:
+                stmt = stmt.where(model.month == int(month))
+
+            records = self.session.exec(stmt).all()
+            for r in records:
+                type_name = model.__name__.lower()
+                amount_str = ""
+                if hasattr(r, "amount") and r.amount is not None:
+                    amount_str = f", amount={r.amount}"
+                results.append(
+                    f"[{type_name}] id={r.id}, household_id={r.household_id}, "
+                    f"title='{r.title}', year={r.year}, month={r.month}{amount_str}"
+                )
+
+        if not results:
+            return f"No records found matching '{args['query']}'"
+        return f"Found {len(results)} record(s):\n" + "\n".join(results)
+
+    def _tool_get_overview(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        year = int(args["year"])
+        month = args.get("month")
+
+        if month:
+            overview = self.overview_service.get_month(household_id, year, int(month))
+        else:
+            overview = self.overview_service.get_year(household_id, year)
+
+        data = overview.model_dump()
+        data = _serialize_decimals(data)
+        return str(data)
+
+
+def _serialize_decimals(obj: Any) -> Any:
+    """Recursively convert Decimal values to float for JSON compatibility."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, dict):
+        return {k: _serialize_decimals(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_serialize_decimals(item) for item in obj]
+    return obj
