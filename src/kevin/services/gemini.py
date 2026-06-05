@@ -45,6 +45,8 @@ Important rules:
 - When searching records, you can filter by title text, by amount (exact or range), or both. For example, to find all records of exactly 600, set amount_min=600 and amount_max=600. To find records over 1000, set amount_min=1000. To find records under 500, set amount_max=500.
 - When the user asks to modify, update, change, or adjust an existing record, use the update tools. First search for the record to get its ID, then use the appropriate update tool.
 - When the user says "add $X to" an existing record, they mean increase the amount by $X. Search for the record, calculate the new amount (old + X), and use the update tool.
+- When the user asks comparative or analytical questions (e.g. "which month had the biggest salary?", "what was my highest expense?", "compare my rent across months"), use search_records to retrieve all relevant records, then ANALYZE the results yourself. Compare amounts, find the maximum/minimum, calculate totals, identify trends, and provide a clear answer. You ARE capable of comparing and analyzing the data returned by search tools.
+- You can perform arithmetic on search results: sums, averages, differences, percentages, finding max/min, sorting, and grouping by month/year/category.
 """
 
 TOOL_DECLARATIONS = [
