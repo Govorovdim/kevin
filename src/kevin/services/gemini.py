@@ -42,6 +42,7 @@ Important rules:
 - Amounts should be positive numbers.
 - Be concise and friendly.
 - The household_id is required for all operations except list_households.
+- When searching records, you can filter by title text, by amount (exact or range), or both. For example, to find all records of exactly 600, set amount_min=600 and amount_max=600. To find records over 1000, set amount_min=1000. To find records under 500, set amount_max=500.
 """
 
 TOOL_DECLARATIONS = [
@@ -280,13 +281,13 @@ TOOL_DECLARATIONS = [
     ),
     types.FunctionDeclaration(
         name="search_records",
-        description="Search for financial records (expenses, income, assets, liabilities) by title/name across all or a specific household. Use this when the user asks to find, look up, or search for records.",
+        description="Search for financial records (expenses, income, assets, liabilities) by title/name and/or amount across all or a specific household. Use this when the user asks to find, look up, or search for records. Supports filtering by exact amount (set both min and max to the same value), amount range, or text query, or any combination.",
         parameters=types.Schema(
             type=types.Type.OBJECT,
             properties={
                 "query": types.Schema(
                     type=types.Type.STRING,
-                    description="Search term to match against record titles (case-insensitive partial match)",
+                    description="Optional: search term to match against record titles (case-insensitive partial match). Can be omitted if searching by amount only.",
                 ),
                 "record_type": types.Schema(
                     type=types.Type.STRING,
@@ -304,8 +305,16 @@ TOOL_DECLARATIONS = [
                     type=types.Type.INTEGER,
                     description="Optional: limit search to a specific month",
                 ),
+                "amount_min": types.Schema(
+                    type=types.Type.NUMBER,
+                    description="Optional: minimum amount (inclusive). For exact amount match, set both amount_min and amount_max to the same value.",
+                ),
+                "amount_max": types.Schema(
+                    type=types.Type.NUMBER,
+                    description="Optional: maximum amount (inclusive). For exact amount match, set both amount_min and amount_max to the same value.",
+                ),
             },
-            required=["query", "record_type"],
+            required=["record_type"],
         ),
     ),
 ]
@@ -588,11 +597,13 @@ class GeminiService:
         return f"Removed liability #{args['liability_id']}"
 
     def _tool_search_records(self, args: dict[str, Any]) -> str:
-        query = args["query"].lower()
+        query = args.get("query", "").lower().strip()
         record_type = args.get("record_type", "all")
         household_id = args.get("household_id")
         year = args.get("year")
         month = args.get("month")
+        amount_min = args.get("amount_min")
+        amount_max = args.get("amount_max")
 
         # Get accessible household IDs
         if household_id:
@@ -624,12 +635,17 @@ class GeminiService:
         for model in types_to_search:
             stmt = select(model).where(
                 model.household_id.in_(household_ids),
-                model.title.ilike(f"%{query}%"),
             )
+            if query:
+                stmt = stmt.where(model.title.ilike(f"%{query}%"))
             if year:
                 stmt = stmt.where(model.year == int(year))
             if month:
                 stmt = stmt.where(model.month == int(month))
+            if amount_min is not None and hasattr(model, "amount"):
+                stmt = stmt.where(model.amount >= Decimal(str(amount_min)))
+            if amount_max is not None and hasattr(model, "amount"):
+                stmt = stmt.where(model.amount <= Decimal(str(amount_max)))
 
             records = self.session.exec(stmt).all()
             for r in records:
@@ -643,7 +659,14 @@ class GeminiService:
                 )
 
         if not results:
-            return f"No records found matching '{args['query']}'"
+            search_desc = []
+            if query:
+                search_desc.append(f"title='{args.get('query', '')}'")
+            if amount_min is not None:
+                search_desc.append(f"amount_min={amount_min}")
+            if amount_max is not None:
+                search_desc.append(f"amount_max={amount_max}")
+            return f"No records found matching {', '.join(search_desc) or 'criteria'}"
         return f"Found {len(results)} record(s):\n" + "\n".join(results)
 
     def _tool_get_overview(self, args: dict[str, Any]) -> str:
