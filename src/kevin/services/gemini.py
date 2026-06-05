@@ -1,3 +1,5 @@
+import logging
+import time
 from decimal import Decimal
 from typing import Any
 
@@ -23,9 +25,64 @@ from kevin.services.liability import LiabilityService
 from kevin.services.overview import OverviewService
 from kevin.settings import settings
 
+logger = logging.getLogger(__name__)
+
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 1.0  # seconds
+RETRY_MAX_DELAY = 8.0  # seconds
+
+# HTTP status codes / error substrings considered retryable
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_RETRYABLE_ERROR_KEYWORDS = (
+    "service unavailable",
+    "resource exhausted",
+    "deadline exceeded",
+    "internal error",
+    "temporarily unavailable",
+    "overloaded",
+    "rate limit",
+    "quota",
+    "connection",
+    "timeout",
+    "503",
+    "429",
+)
+
 
 class GeminiError(Exception):
+    """Base error for Gemini service failures."""
+
     pass
+
+
+class GeminiServiceUnavailableError(GeminiError):
+    """Raised when Gemini API is temporarily unavailable after retries."""
+
+    def __init__(self, message: str, attempts: int = 0):
+        self.attempts = attempts
+        super().__init__(message)
+
+
+def _is_retryable_error(error: Exception) -> bool:
+    """Determine if an error is transient and worth retrying."""
+    error_str = str(error).lower()
+
+    # Check for known retryable keywords in the error message
+    for keyword in _RETRYABLE_ERROR_KEYWORDS:
+        if keyword in error_str:
+            return True
+
+    # Check for HTTP status code attributes (google-genai errors often have these)
+    status_code = getattr(error, "status_code", None) or getattr(error, "code", None)
+    if status_code and int(status_code) in _RETRYABLE_STATUS_CODES:
+        return True
+
+    # ConnectionError, TimeoutError are always retryable
+    if isinstance(error, (ConnectionError, TimeoutError, OSError)):
+        return True
+
+    return False
 
 
 SYSTEM_PROMPT = """You are Kevin, a household budget assistant. You can ONLY help with adding, removing, updating, or querying financial records (expenses, income, assets, liabilities).
@@ -503,6 +560,46 @@ class GeminiService:
         if not self.user_household_repo.exists(self.user_id, household_id):
             raise PermissionError(f"You don't have access to household {household_id}")
 
+    def _generate_with_retry(
+        self,
+        contents: list[types.Content],
+        config: types.GenerateContentConfig,
+    ) -> Any:
+        """Call Gemini's generate_content with retry logic for transient errors."""
+        last_error: Exception | None = None
+
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=contents,
+                    config=config,
+                )
+                return response
+            except Exception as e:
+                last_error = e
+                if not _is_retryable_error(e) or attempt == MAX_RETRIES:
+                    break
+                delay = min(RETRY_BASE_DELAY * (2 ** (attempt - 1)), RETRY_MAX_DELAY)
+                logger.warning(
+                    "Gemini API call failed (attempt %d/%d): %s. Retrying in %.1fs...",
+                    attempt,
+                    MAX_RETRIES,
+                    str(e),
+                    delay,
+                )
+                time.sleep(delay)
+
+        # All retries exhausted or non-retryable error
+        assert last_error is not None
+        if _is_retryable_error(last_error):
+            raise GeminiServiceUnavailableError(
+                f"AI service is temporarily unavailable after {MAX_RETRIES} attempts. "
+                f"Please try again in a few moments. (Error: {last_error})",
+                attempts=MAX_RETRIES,
+            )
+        raise last_error
+
     def chat(
         self,
         message: str,
@@ -531,11 +628,7 @@ class GeminiService:
 
             max_rounds = 10
             for _ in range(max_rounds):
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=contents,
-                    config=generate_config,
-                )
+                response = self._generate_with_retry(contents, generate_config)
 
                 if not response.candidates:
                     raise GeminiError("No response from Gemini")
@@ -580,7 +673,7 @@ class GeminiService:
                 actions,
             )
 
-        except GeminiError:
+        except (GeminiError, GeminiServiceUnavailableError):
             raise
         except Exception as e:
             raise GeminiError(f"Failed to communicate with Gemini: {str(e)}")

@@ -7,7 +7,11 @@ from sqlmodel import Session
 from kevin.api.v1.dependencies import get_current_user
 from kevin.database import get_session
 from kevin.models.user import User
-from kevin.services.gemini import GeminiError, GeminiService
+from kevin.services.gemini import (
+    GeminiError,
+    GeminiService,
+    GeminiServiceUnavailableError,
+)
 
 router = APIRouter(
     prefix="/chat",
@@ -53,6 +57,15 @@ def chat(
             session=session, user_id=current_user.id, year=year, month=month
         )
         response_text, actions = service.chat(body.message, body.history)
+    except GeminiServiceUnavailableError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The AI service is temporarily unavailable. "
+                f"Kevin tried {e.attempts} times but couldn't reach the service. "
+                "Please try again in a moment."
+            ),
+        )
     except GeminiError as e:
         raise HTTPException(status_code=502, detail=f"AI service error: {str(e)}")
     except Exception as e:
