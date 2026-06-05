@@ -28,11 +28,11 @@ class GeminiError(Exception):
     pass
 
 
-SYSTEM_PROMPT = """You are Kevin, a household budget assistant. You can ONLY help with adding, removing, or querying financial records (expenses, income, assets, liabilities).
+SYSTEM_PROMPT = """You are Kevin, a household budget assistant. You can ONLY help with adding, removing, updating, or querying financial records (expenses, income, assets, liabilities).
 
 For anything unrelated to household finances, respond: "I can only help with household finances."
 
-When the user asks to add or remove records, use the available tools. When they ask about their financial overview, use get_overview.
+When the user asks to add, remove, or modify records, use the available tools. When they ask about their financial overview, use get_overview.
 
 Important rules:
 - Always confirm what you did after executing an action.
@@ -43,6 +43,8 @@ Important rules:
 - Be concise and friendly.
 - The household_id is required for all operations except list_households.
 - When searching records, you can filter by title text, by amount (exact or range), or both. For example, to find all records of exactly 600, set amount_min=600 and amount_max=600. To find records over 1000, set amount_min=1000. To find records under 500, set amount_max=500.
+- When the user asks to modify, update, change, or adjust an existing record, use the update tools. First search for the record to get its ID, then use the appropriate update tool.
+- When the user says "add $X to" an existing record, they mean increase the amount by $X. Search for the record, calculate the new amount (old + X), and use the update tool.
 """
 
 TOOL_DECLARATIONS = [
@@ -104,6 +106,35 @@ TOOL_DECLARATIONS = [
         ),
     ),
     types.FunctionDeclaration(
+        name="update_expense",
+        description="Update an existing expense record. Use this to modify the title and/or amount of an expense. First search for the record to get its ID.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER, description="The household ID"
+                ),
+                "expense_id": types.Schema(
+                    type=types.Type.INTEGER, description="The expense ID to update"
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER, description="Month (1-12)"
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year (e.g. 2025)"
+                ),
+                "title": types.Schema(
+                    type=types.Type.STRING,
+                    description="New name/description of the expense",
+                ),
+                "amount": types.Schema(
+                    type=types.Type.NUMBER, description="New amount for the expense"
+                ),
+            },
+            required=["household_id", "expense_id", "month", "year", "title", "amount"],
+        ),
+    ),
+    types.FunctionDeclaration(
         name="add_income",
         description="Add a new income record to a household budget",
         parameters=types.Schema(
@@ -150,6 +181,35 @@ TOOL_DECLARATIONS = [
                 ),
             },
             required=["household_id", "income_id", "month", "year"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="update_income",
+        description="Update an existing income record. Use this to modify the title and/or amount of an income. First search for the record to get its ID.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER, description="The household ID"
+                ),
+                "income_id": types.Schema(
+                    type=types.Type.INTEGER, description="The income ID to update"
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER, description="Month (1-12)"
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year (e.g. 2025)"
+                ),
+                "title": types.Schema(
+                    type=types.Type.STRING,
+                    description="New source/description of the income",
+                ),
+                "amount": types.Schema(
+                    type=types.Type.NUMBER, description="New amount for the income"
+                ),
+            },
+            required=["household_id", "income_id", "month", "year", "title", "amount"],
         ),
     ),
     types.FunctionDeclaration(
@@ -210,6 +270,43 @@ TOOL_DECLARATIONS = [
         ),
     ),
     types.FunctionDeclaration(
+        name="update_asset",
+        description="Update an existing asset record. Use this to modify the title, ticker, amount, bought_price, or current_price of an asset. First search for the record to get its ID.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER, description="The household ID"
+                ),
+                "asset_id": types.Schema(
+                    type=types.Type.INTEGER, description="The asset ID to update"
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER, description="Month (1-12)"
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year (e.g. 2025)"
+                ),
+                "title": types.Schema(
+                    type=types.Type.STRING, description="New name of the asset"
+                ),
+                "ticker": types.Schema(
+                    type=types.Type.STRING, description="Stock ticker symbol (optional)"
+                ),
+                "amount": types.Schema(
+                    type=types.Type.NUMBER, description="New quantity/units held"
+                ),
+                "bought_price": types.Schema(
+                    type=types.Type.NUMBER, description="New price per unit when bought"
+                ),
+                "current_price": types.Schema(
+                    type=types.Type.NUMBER, description="New current price per unit"
+                ),
+            },
+            required=["household_id", "asset_id", "month", "year", "title"],
+        ),
+    ),
+    types.FunctionDeclaration(
         name="add_liability",
         description="Add a new liability/debt record",
         parameters=types.Schema(
@@ -256,6 +353,42 @@ TOOL_DECLARATIONS = [
                 ),
             },
             required=["household_id", "liability_id", "month", "year"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="update_liability",
+        description="Update an existing liability record. Use this to modify the title and/or amount of a liability. First search for the record to get its ID.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "household_id": types.Schema(
+                    type=types.Type.INTEGER, description="The household ID"
+                ),
+                "liability_id": types.Schema(
+                    type=types.Type.INTEGER, description="The liability ID to update"
+                ),
+                "month": types.Schema(
+                    type=types.Type.INTEGER, description="Month (1-12)"
+                ),
+                "year": types.Schema(
+                    type=types.Type.INTEGER, description="Year (e.g. 2025)"
+                ),
+                "title": types.Schema(
+                    type=types.Type.STRING,
+                    description="New name/description of the liability",
+                ),
+                "amount": types.Schema(
+                    type=types.Type.NUMBER, description="New amount owed"
+                ),
+            },
+            required=[
+                "household_id",
+                "liability_id",
+                "month",
+                "year",
+                "title",
+                "amount",
+            ],
         ),
     ),
     types.FunctionDeclaration(
@@ -524,6 +657,19 @@ class GeminiService:
         )
         return f"Removed expense #{args['expense_id']}"
 
+    def _tool_update_expense(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        expense = self.expense_service.update(
+            int(args["expense_id"]),
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+            args["title"],
+            Decimal(str(args["amount"])),
+        )
+        return f"Updated expense #{args['expense_id']} to '{expense.title}' for {expense.amount}"
+
     def _tool_add_income(self, args: dict[str, Any]) -> str:
         household_id = int(args["household_id"])
         self._verify_household_access(household_id)
@@ -546,6 +692,19 @@ class GeminiService:
             int(args["month"]),
         )
         return f"Removed income #{args['income_id']}"
+
+    def _tool_update_income(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        income = self.income_service.update(
+            int(args["income_id"]),
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+            args["title"],
+            Decimal(str(args["amount"])),
+        )
+        return f"Updated income #{args['income_id']} to '{income.title}' for {income.amount}"
 
     def _tool_add_asset(self, args: dict[str, Any]) -> str:
         household_id = int(args["household_id"])
@@ -573,6 +732,22 @@ class GeminiService:
         )
         return f"Removed asset #{args['asset_id']}"
 
+    def _tool_update_asset(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        asset = self.asset_service.update(
+            int(args["asset_id"]),
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+            args["title"],
+            args.get("ticker"),
+            Decimal(str(args["amount"])) if args.get("amount") else None,
+            Decimal(str(args["bought_price"])) if args.get("bought_price") else None,
+            Decimal(str(args["current_price"])) if args.get("current_price") else None,
+        )
+        return f"Updated asset #{args['asset_id']} to '{asset.title}'"
+
     def _tool_add_liability(self, args: dict[str, Any]) -> str:
         household_id = int(args["household_id"])
         self._verify_household_access(household_id)
@@ -595,6 +770,19 @@ class GeminiService:
             int(args["month"]),
         )
         return f"Removed liability #{args['liability_id']}"
+
+    def _tool_update_liability(self, args: dict[str, Any]) -> str:
+        household_id = int(args["household_id"])
+        self._verify_household_access(household_id)
+        liability = self.liability_service.update(
+            int(args["liability_id"]),
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+            args["title"],
+            Decimal(str(args["amount"])),
+        )
+        return f"Updated liability #{args['liability_id']} to '{liability.title}' for {liability.amount}"
 
     def _tool_search_records(self, args: dict[str, Any]) -> str:
         query = args.get("query", "").lower().strip()
