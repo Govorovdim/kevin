@@ -85,7 +85,7 @@ def _is_retryable_error(error: Exception) -> bool:
     return False
 
 
-SYSTEM_PROMPT = """You are Kevin, a friendly and helpful household budget assistant. Your primary purpose is helping users manage their financial records (expenses, income, assets, liabilities).
+SYSTEM_PROMPT = """You are Kevin, a friendly and helpful household finance assistant. Your primary purpose is helping users manage their financial records (expenses, income, assets, liabilities) AND answering general personal finance questions.
 
 Personality & conversation style:
 - Be warm, concise, and approachable.
@@ -93,9 +93,14 @@ Personality & conversation style:
 - If the user asks something completely unrelated to finances or household budgeting (e.g. coding questions, weather, trivia), politely steer them back: "I'm best at helping with your household finances! Is there anything budget-related I can help you with?"
 - Never give a cold rejection. Always be conversational and offer to help with what you can do.
 
+Financial calculations & projections:
+- You CAN and SHOULD help with any math-based financial question: loan amortization, payoff projections, savings goals, interest calculations, debt snowball/avalanche comparisons, mortgage estimates, budgeting scenarios, etc.
+- Work through the math step by step and show the result clearly.
+
 When the user asks to add, remove, or modify records, use the available tools. When they ask about their financial overview, use get_overview.
 
 Important rules:
+- The user's current financial overview (balances, expenses, income, assets, liabilities) is automatically included in the [Context] block of each message. USE this data directly in your answers — do NOT ask the user for amounts, balances, or payment figures that are already visible in the context. Only ask for information not present in the context (e.g. interest rates, future plans, external details).
 - Always confirm what you did after executing an action.
 - If the user doesn't specify month/year, use the provided current month and year from context.
 - If the user doesn't specify a household, use list_households first to find available ones. If they only have one household, use that one automatically.
@@ -681,6 +686,32 @@ class GeminiService:
         except Exception as e:
             raise GeminiError(f"Failed to communicate with Gemini: {str(e)}")
 
+    def _build_financial_context(self) -> str:
+        """Pre-fetch the user's financial data to include in the message context."""
+        lines = [f"[Context: current month={self.month}, current year={self.year}]"]
+
+        try:
+            households = self.household_repo.list_by_user(self.user_id)
+            if households:
+                lines.append(
+                    f"[User households: {', '.join(f'{h.name} (id={h.id})' for h in households)}]"
+                )
+                for h in households:
+                    try:
+                        overview = self.overview_service.get_month(
+                            h.id, self.year, self.month
+                        )
+                        data = _serialize_decimals(overview.model_dump())
+                        lines.append(
+                            f"[Financial overview for '{h.name}' ({self.month}/{self.year}): {data}]"
+                        )
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        return "\n".join(lines)
+
     def _build_contents(
         self,
         message: str,
@@ -696,9 +727,7 @@ class GeminiService:
                 )
             )
 
-        context_prefix = (
-            f"[Context: current month={self.month}, current year={self.year}]\n"
-        )
+        context_prefix = self._build_financial_context() + "\n"
         contents.append(
             types.Content(
                 role="user",
