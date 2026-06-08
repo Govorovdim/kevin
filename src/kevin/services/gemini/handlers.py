@@ -39,6 +39,7 @@ class ToolHandlers:
         *,
         session: Session,
         user_id: int,
+        household_id: int | None = None,
         expense_service: ExpenseService,
         income_service: IncomeService,
         asset_service: AssetService,
@@ -49,6 +50,7 @@ class ToolHandlers:
     ) -> None:
         self._session = session
         self._user_id = user_id
+        self._household_id = household_id
         self._expense_service = expense_service
         self._income_service = income_service
         self._asset_service = asset_service
@@ -383,13 +385,24 @@ class ToolHandlers:
     def _require_household_access(self, args: dict[str, Any]) -> int:
         """Extract household_id from args and verify user access.
 
+        When the service is scoped to a specific household (self._household_id),
+        only that household is allowed regardless of what the AI requests.
+
         Returns:
             The validated household_id.
 
         Raises:
-            PermissionError: If the user doesn't have access.
+            PermissionError: If the user doesn't have access or the requested
+                household doesn't match the scoped household.
         """
         household_id = int(args["household_id"])
+
+        if self._household_id is not None and household_id != self._household_id:
+            raise PermissionError(
+                f"Operations are scoped to household {self._household_id}. "
+                f"Cannot operate on household {household_id}."
+            )
+
         if not self._user_household_repo.exists(self._user_id, household_id):
             raise PermissionError(f"You don't have access to household {household_id}")
         return household_id
@@ -397,9 +410,19 @@ class ToolHandlers:
     def _resolve_household_ids(self, household_id: Any) -> list[int]:
         """Resolve which household IDs to query.
 
+        When the service is scoped to a specific household (self._household_id),
+        always returns only that household regardless of args.
         If a specific household_id is given, verify access and return it.
         Otherwise, return all household IDs the user belongs to.
         """
+        if self._household_id is not None:
+            if household_id and int(household_id) != self._household_id:
+                raise PermissionError(
+                    f"Operations are scoped to household {self._household_id}. "
+                    f"Cannot query household {household_id}."
+                )
+            return [self._household_id]
+
         if household_id:
             hid = int(household_id)
             if not self._user_household_repo.exists(self._user_id, hid):

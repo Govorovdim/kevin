@@ -29,6 +29,7 @@ class ChatRequest(BaseModel):
     history: list[ChatMessage] = []
     year: int | None = None
     month: int | None = None
+    household_id: int | None = None
 
 
 class ActionResult(BaseModel):
@@ -54,7 +55,11 @@ def chat(
 
     try:
         service = GeminiService(
-            session=session, user_id=current_user.id, year=year, month=month
+            session=session,
+            user_id=current_user.id,
+            year=year,
+            month=month,
+            household_id=body.household_id,
         )
         response_text, actions = service.chat(body.message, body.history)
     except GeminiServiceUnavailableError as e:

@@ -99,6 +99,7 @@ class GeminiService:
         user_id: int,
         year: int,
         month: int,
+        household_id: int | None = None,
     ) -> None:
         if not settings.gemini_api_key:
             raise GeminiError("GEMINI_API_KEY is not configured")
@@ -108,6 +109,7 @@ class GeminiService:
         self._user_id = user_id
         self._year = year
         self._month = month
+        self._household_id = household_id
         self._session = session
 
         # Set up repositories
@@ -133,6 +135,7 @@ class GeminiService:
         self._handlers = ToolHandlers(
             session=session,
             user_id=user_id,
+            household_id=household_id,
             expense_service=ExpenseService(expense_repo),
             income_service=IncomeService(income_repo),
             asset_service=AssetService(asset_repo),
@@ -305,12 +308,37 @@ class GeminiService:
 
         This gives the AI immediate access to household info and balances
         without needing a tool call on every turn.
+
+        When household_id is set, only includes context for that specific
+        household to scope AI operations to a single household.
         """
         lines = [f"[Context: current month={self._month}, current year={self._year}]"]
 
         try:
             households = self._household_repo.list_by_user(self._user_id)
-            if households:
+
+            if self._household_id is not None:
+                households = [h for h in households if h.id == self._household_id]
+                if households:
+                    h = households[0]
+                    lines.append(
+                        f"[Active household: {h.name} (id={h.id}, "
+                        f"currency={h.currency}). All operations MUST target "
+                        f"this household only.]"
+                    )
+                    if h.id is not None:
+                        try:
+                            overview = self._overview_service.get_month(
+                                h.id, self._year, self._month
+                            )
+                            data = _serialize_decimals(overview.model_dump())
+                            lines.append(
+                                f"[Financial overview for '{h.name}' "
+                                f"({self._month}/{self._year}): {data}]"
+                            )
+                        except Exception:
+                            pass
+            elif households:
                 household_info = ", ".join(
                     f"{h.name} (id={h.id}, currency={h.currency})" for h in households
                 )
