@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    currency_api_url: str = "https://api.frankfurter.dev/v1"
     host: str = "0.0.0.0"
     port: int = 8000
     cors_origins: list[str] = [
