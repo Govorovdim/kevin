@@ -1,7 +1,5 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from kevin.api.v1.dependencies import get_current_user
@@ -12,6 +10,7 @@ from kevin.services.gemini import (
     GeminiService,
     GeminiServiceUnavailableError,
 )
+from kevin.utils import utcnow
 
 router = APIRouter(
     prefix="/chat",
@@ -26,7 +25,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    history: list[ChatMessage] = []
+    history: list[ChatMessage] = Field(default_factory=list)
     year: int | None = None
     month: int | None = None
     household_id: int | None = None
@@ -40,7 +39,7 @@ class ActionResult(BaseModel):
 
 class ChatResponse(BaseModel):
     message: str
-    actions: list[ActionResult] = []
+    actions: list[ActionResult] = Field(default_factory=list)
 
 
 @router.post("/", response_model=ChatResponse)
@@ -49,7 +48,7 @@ def chat(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    now = datetime.now()
+    now = utcnow()
     year = body.year or now.year
     month = body.month or now.month
 

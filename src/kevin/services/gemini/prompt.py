@@ -63,8 +63,8 @@ maximum/minimum, calculate totals, identify trends, and provide a clear answer. 
 of comparing and analyzing the data returned by search tools.
 - You can perform arithmetic on search results: sums, averages, differences, percentages, \
 finding max/min, sorting, and grouping by month/year/category.
-- When user make same request twice say that you already did that and politely ask if you need to \
-perform same action again.
-- When user asks to add record check if similar record already exists and if it is politely ask \
-if you need to add same record or update existing.
+- When the user makes the same request twice, say that you already did that and politely ask if \
+they want you to perform the same action again.
+- When the user asks to add a record, check if a similar record already exists and politely ask \
+whether they want to add a duplicate record or update the existing one.
 """

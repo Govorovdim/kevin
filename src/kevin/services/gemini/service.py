@@ -102,7 +102,7 @@ class GeminiService:
         household_id: int | None = None,
     ) -> None:
         if not settings.gemini_api_key:
-            raise GeminiError("GEMINI_API_KEY is not configured")
+            raise GeminiError("KEVIN_GEMINI_API_KEY is not configured")
 
         self._client = genai.Client(api_key=settings.gemini_api_key)
         self._model = settings.gemini_model
@@ -331,7 +331,16 @@ class GeminiService:
                             overview = self._overview_service.get_month(
                                 h.id, self._year, self._month
                             )
-                            data = _serialize_decimals(overview.model_dump())
+                            data = _serialize_decimals(
+                                {
+                                    "total_income": overview.total_income,
+                                    "total_expenses": overview.total_expenses,
+                                    "net_savings": overview.net_savings,
+                                    "portfolio_value": overview.portfolio_value,
+                                    "total_debt": overview.total_debt,
+                                    "net_worth": overview.net_worth,
+                                }
+                            )
                             lines.append(
                                 f"[Financial overview for '{h.name}' "
                                 f"({self._month}/{self._year}): {data}]"
@@ -351,7 +360,16 @@ class GeminiService:
                         overview = self._overview_service.get_month(
                             h.id, self._year, self._month
                         )
-                        data = _serialize_decimals(overview.model_dump())
+                        data = _serialize_decimals(
+                            {
+                                "total_income": overview.total_income,
+                                "total_expenses": overview.total_expenses,
+                                "net_savings": overview.net_savings,
+                                "portfolio_value": overview.portfolio_value,
+                                "total_debt": overview.total_debt,
+                                "net_worth": overview.net_worth,
+                            }
+                        )
                         lines.append(
                             f"[Financial overview for '{h.name}' "
                             f"({self._month}/{self._year}): {data}]"
