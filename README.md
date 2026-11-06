@@ -17,7 +17,9 @@ A deployed demo is available at https://wackyduckling.com/kevin/
 - AI chatbot powered by Google Gemini:
   - Ask it to find or calculate something across your finances
   - Add new income, expense, asset, or liability entries
-  - Update existing entries
+  - Update, move, copy, or bulk-add entries
+  - Find likely duplicate records
+  - Create, rename, invite to, join, leave, or delete households
 - Excel import/export
 - Cross-platform (iOS, Android, Web)
 

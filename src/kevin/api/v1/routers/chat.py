@@ -40,6 +40,7 @@ class ActionResult(BaseModel):
 class ChatResponse(BaseModel):
     message: str
     actions: list[ActionResult] = Field(default_factory=list)
+    title: str | None = None
 
 
 @router.post("/", response_model=ChatResponse)
@@ -60,7 +61,7 @@ def chat(
             month=month,
             household_id=body.household_id,
         )
-        response_text, actions = service.chat(body.message, body.history)
+        response_text, actions, title = service.chat(body.message, body.history)
     except GeminiServiceUnavailableError as e:
         raise HTTPException(
             status_code=503,
@@ -81,4 +82,5 @@ def chat(
             ActionResult(action=a["action"], success=a["success"], detail=a["detail"])
             for a in actions
         ],
+        title=title,
     )

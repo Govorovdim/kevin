@@ -18,6 +18,7 @@ from kevin.repositories.user_household import UserHouseholdRepository
 from kevin.services.asset import AssetService
 from kevin.services.currency import CurrencyService
 from kevin.services.expense import ExpenseService
+from kevin.services.household import HouseholdService
 from kevin.services.income import IncomeService
 from kevin.services.liability import LiabilityService
 from kevin.services.overview import OverviewService
@@ -89,7 +90,9 @@ class GeminiService:
 
     Usage:
         service = GeminiService(session=session, user_id=1, year=2025, month=6)
-        response_text, actions = service.chat("What are my expenses?", history=[])
+        response_text, actions, title = service.chat(
+            "What are my expenses?", history=[]
+        )
     """
 
     def __init__(
@@ -115,6 +118,7 @@ class GeminiService:
         # Set up repositories
         self._household_repo = HouseholdRepository(session)
         user_household_repo = UserHouseholdRepository(session)
+        household_service = HouseholdService(self._household_repo, user_household_repo)
 
         expense_repo = ExpenseRepository(session)
         income_repo = IncomeRepository(session)
@@ -143,13 +147,14 @@ class GeminiService:
             overview_service=overview_service,
             currency_service=currency_service,
             user_household_repo=user_household_repo,
+            household_service=household_service,
         )
 
     def chat(
         self,
         message: str,
         history: list[Any],
-    ) -> tuple[str, list[dict[str, Any]]]:
+    ) -> tuple[str, list[dict[str, Any]], str | None]:
         """Send a message and return the AI response with any actions taken.
 
         Args:
@@ -157,8 +162,8 @@ class GeminiService:
             history: List of previous ChatMessage objects with .role and .content.
 
         Returns:
-            A tuple of (response_text, actions_list) where actions_list contains
-            dicts with keys: action (str), success (bool), detail (str).
+            A tuple of (response_text, actions_list, suggested_title). The title
+            is only generated on the first turn of a conversation.
 
         Raises:
             GeminiServiceUnavailableError: If the API is unreachable after retries.
@@ -188,7 +193,8 @@ class GeminiService:
                     text_parts = [
                         part.text for part in candidate.content.parts if part.text
                     ]
-                    return "".join(text_parts), actions
+                    title = self._generate_title(message) if not history else None
+                    return "".join(text_parts), actions, title
 
                 contents.append(candidate.content)
 
@@ -214,10 +220,12 @@ class GeminiService:
                 contents.append(types.Content(role="user", parts=function_responses))
 
             # Exhausted tool-call rounds
+            title = self._generate_title(message) if not history else None
             return (
                 "I performed several actions but reached my processing limit. "
                 "Please check your records.",
                 actions,
+                title,
             )
 
         except (GeminiError, GeminiServiceUnavailableError):
@@ -228,6 +236,50 @@ class GeminiService:
     # ------------------------------------------------------------------
     # Private: Gemini API interaction
     # ------------------------------------------------------------------
+
+    def _generate_title(self, message: str) -> str | None:
+        """Generate a short, descriptive chat title from the user's request."""
+        request = " ".join(message.split())
+        if not request:
+            return None
+
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(
+                        text=(
+                            "Create a short title for a household finance chat "
+                            "based on this user request. Use 2-5 words, title case, "
+                            "no quotes, and no trailing punctuation.\n\n"
+                            f"Request: {request[:2000]}"
+                        )
+                    )
+                ],
+            )
+        ]
+        config = types.GenerateContentConfig(
+            system_instruction=(
+                "You write concise chat titles. Return only the title text."
+            ),
+            temperature=0.2,
+            max_output_tokens=64,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        )
+
+        try:
+            response = self._generate_with_retry(contents, config)
+            if not response.candidates:
+                return None
+            parts = response.candidates[0].content.parts
+            title = " ".join("".join(part.text for part in parts if part.text).split())
+            title = title.strip("\"'").rstrip(".")
+            if not title:
+                return None
+            return title[:60].rstrip()
+        except Exception as e:
+            logger.warning("Failed to generate chat title: %s", e)
+            return None
 
     def _generate_with_retry(
         self,

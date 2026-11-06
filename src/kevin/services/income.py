@@ -47,6 +47,17 @@ class IncomeService:
         income.updated_at = datetime.now(timezone.utc)
         return self.repository.update(income)
 
+    def move(
+        self, income_id: int, household_id: int, to_year: int, to_month: int
+    ) -> Income:
+        income = self.repository.get(income_id, household_id)
+        if not income:
+            raise NotFoundError(f"Income {income_id} not found")
+        income.year = to_year
+        income.month = to_month
+        income.updated_at = datetime.now(timezone.utc)
+        return self.repository.update(income)
+
     def delete(self, income_id: int, household_id: int, year: int, month: int) -> None:
         income = self.get(income_id, household_id, year, month)
         self.repository.delete(income)

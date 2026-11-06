@@ -49,6 +49,17 @@ class LiabilityService:
         liability.updated_at = datetime.now(timezone.utc)
         return self.repository.update(liability)
 
+    def move(
+        self, liability_id: int, household_id: int, to_year: int, to_month: int
+    ) -> Liability:
+        liability = self.repository.get(liability_id, household_id)
+        if not liability:
+            raise NotFoundError(f"Liability {liability_id} not found")
+        liability.year = to_year
+        liability.month = to_month
+        liability.updated_at = datetime.now(timezone.utc)
+        return self.repository.update(liability)
+
     def delete(
         self, liability_id: int, household_id: int, year: int, month: int
     ) -> None:

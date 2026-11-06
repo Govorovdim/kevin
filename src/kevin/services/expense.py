@@ -47,6 +47,17 @@ class ExpenseService:
         expense.updated_at = datetime.now(timezone.utc)
         return self.repository.update(expense)
 
+    def move(
+        self, expense_id: int, household_id: int, to_year: int, to_month: int
+    ) -> Expense:
+        expense = self.repository.get(expense_id, household_id)
+        if not expense:
+            raise NotFoundError(f"Expense {expense_id} not found")
+        expense.year = to_year
+        expense.month = to_month
+        expense.updated_at = datetime.now(timezone.utc)
+        return self.repository.update(expense)
+
     def delete(self, expense_id: int, household_id: int, year: int, month: int) -> None:
         expense = self.get(expense_id, household_id, year, month)
         self.repository.delete(expense)
