@@ -184,10 +184,8 @@ class ToolHandlers:
             int(args["year"]),
             int(args["month"]),
             args["title"],
-            args.get("ticker"),
-            Decimal(str(args["amount"])) if args.get("amount") else None,
-            Decimal(str(args["bought_price"])) if args.get("bought_price") else None,
-            Decimal(str(args["current_price"])) if args.get("current_price") else None,
+            Decimal(str(args["price"])),
+            Decimal(str(args["amount"])) if args.get("amount") is not None else None,
         )
         return f"Added asset '{asset.title}'"
 
@@ -203,16 +201,22 @@ class ToolHandlers:
 
     def _handle_update_asset(self, args: dict[str, Any]) -> str:
         household_id = self._require_household_access(args)
+        existing = self._asset_service.get(
+            int(args["asset_id"]),
+            household_id,
+            int(args["year"]),
+            int(args["month"]),
+        )
+        price = args.get("price")
+        amount = args.get("amount")
         asset = self._asset_service.update(
             int(args["asset_id"]),
             household_id,
             int(args["year"]),
             int(args["month"]),
             args["title"],
-            args.get("ticker"),
-            Decimal(str(args["amount"])) if args.get("amount") else None,
-            Decimal(str(args["bought_price"])) if args.get("bought_price") else None,
-            Decimal(str(args["current_price"])) if args.get("current_price") else None,
+            Decimal(str(price)) if price is not None else existing.price,
+            Decimal(str(amount)) if amount is not None else existing.amount,
         )
         return f"Updated asset #{args['asset_id']} to '{asset.title}'"
 

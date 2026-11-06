@@ -244,24 +244,16 @@ _ADD_ASSET = types.FunctionDeclaration(
                 type=types.Type.STRING,
                 description="Name of the asset.",
             ),
-            "ticker": types.Schema(
-                type=types.Type.STRING,
-                description="Stock ticker symbol (optional).",
+            "price": types.Schema(
+                type=types.Type.NUMBER,
+                description="Price per unit.",
             ),
             "amount": types.Schema(
                 type=types.Type.NUMBER,
-                description="Quantity/units held.",
-            ),
-            "bought_price": types.Schema(
-                type=types.Type.NUMBER,
-                description="Price per unit when bought.",
-            ),
-            "current_price": types.Schema(
-                type=types.Type.NUMBER,
-                description="Current price per unit.",
+                description="Optional quantity/units held. Defaults to 1.",
             ),
         },
-        required=["household_id", "month", "year", "title"],
+        required=["household_id", "month", "year", "title", "price"],
     ),
 )
 
@@ -321,21 +313,13 @@ _UPDATE_ASSET = types.FunctionDeclaration(
                 type=types.Type.STRING,
                 description="New name of the asset.",
             ),
-            "ticker": types.Schema(
-                type=types.Type.STRING,
-                description="Stock ticker symbol (optional).",
+            "price": types.Schema(
+                type=types.Type.NUMBER,
+                description="New price per unit.",
             ),
             "amount": types.Schema(
                 type=types.Type.NUMBER,
-                description="New quantity/units held.",
-            ),
-            "bought_price": types.Schema(
-                type=types.Type.NUMBER,
-                description="New price per unit when bought.",
-            ),
-            "current_price": types.Schema(
-                type=types.Type.NUMBER,
-                description="New current price per unit.",
+                description="New optional quantity/units held. Defaults to 1.",
             ),
         },
         required=["household_id", "asset_id", "month", "year", "title"],
