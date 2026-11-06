@@ -22,6 +22,15 @@ class UserHouseholdRepository:
     def exists(self, user_id: int, household_id: int) -> bool:
         return self.get(user_id, household_id) is not None
 
+    def list_household_ids(self, user_id: int) -> list[int]:
+        return list(
+            self.session.exec(
+                select(UserHousehold.household_id).where(
+                    UserHousehold.user_id == user_id
+                )
+            ).all()
+        )
+
     def count_by_household(self, household_id: int) -> int:
         result = self.session.exec(
             select(func.count()).where(UserHousehold.household_id == household_id)

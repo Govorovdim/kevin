@@ -19,7 +19,6 @@ A deployed demo is available at https://wackyduckling.com/kevin/
   - Add new income, expense, asset, or liability entries
   - Update existing entries
 - Excel import/export
-- Stock ticker search via Yahoo Finance
 - Cross-platform (iOS, Android, Web)
 
 ## Tech Stack

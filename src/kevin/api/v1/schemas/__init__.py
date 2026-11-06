@@ -1,6 +1,5 @@
 from kevin.api.v1.schemas.requests import (
     AssetRequest,
-    AssetUpdatePriceRequest,
     ExpenseRequest,
     IncomeRequest,
     LiabilityRequest,
@@ -16,7 +15,6 @@ from kevin.api.v1.schemas.responses import (
 
 __all__ = [
     "AssetRequest",
-    "AssetUpdatePriceRequest",
     "AssetResponse",
     "ExpenseRequest",
     "ExpenseResponse",

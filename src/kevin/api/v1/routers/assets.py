@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from kevin.api.v1.dependencies import get_household
-from kevin.api.v1.schemas.requests.asset import AssetRequest, AssetUpdatePriceRequest
+from kevin.api.v1.schemas.requests.asset import AssetRequest, AssetUpdateRequest
 from kevin.api.v1.schemas.responses.asset import AssetResponse
 from kevin.database import get_session
 from kevin.exceptions import NotFoundError
@@ -43,10 +43,9 @@ def create_asset(
         year,
         month,
         body.title,
-        body.ticker,
+        body.price,
         body.amount,
-        body.bought_price,
-        body.current_price,
+        body.carried_forward,
     )
 
 
@@ -70,7 +69,7 @@ def update_asset(
     year: int,
     month: int,
     asset_id: int,
-    body: AssetRequest,
+    body: AssetUpdateRequest,
     service: AssetService = Depends(get_service),
 ):
     try:
@@ -80,27 +79,9 @@ def update_asset(
             year,
             month,
             body.title,
-            body.ticker,
+            body.price,
             body.amount,
-            body.bought_price,
-            body.current_price,
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.patch("/{asset_id}/price", response_model=AssetResponse)
-def update_asset_price(
-    household_id: int,
-    year: int,
-    month: int,
-    asset_id: int,
-    body: AssetUpdatePriceRequest,
-    service: AssetService = Depends(get_service),
-):
-    try:
-        return service.update_price(
-            asset_id, household_id, year, month, body.current_price
+            body.carried_forward,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

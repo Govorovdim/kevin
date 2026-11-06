@@ -1,6 +1,6 @@
 from logging.config import fileConfig
 
-import kevin.models
+import kevin.models  # noqa: F401  # Register models with SQLModel metadata.
 from alembic import context
 from kevin.settings import settings
 from sqlalchemy import create_engine, pool

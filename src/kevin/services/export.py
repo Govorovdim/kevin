@@ -108,10 +108,8 @@ class ExportService:
                 "Year",
                 "Month",
                 "Title",
-                "Ticker",
-                "Quantity",
-                f"Bought Price ({currency})",
-                f"Current Price ({currency})",
+                "Amount",
+                f"Price ({currency})",
                 f"Value ({currency})",
             ]
         )
@@ -131,23 +129,14 @@ class ExportService:
 
         asset_items.sort(key=lambda x: (x.year, x.month))
         for item in asset_items:
-            quantity = item.amount
-            current_price = item.current_price
-            value = (
-                quantity * current_price
-                if quantity is not None and current_price is not None
-                else None
-            )
             ws_assets.append(
                 [
                     item.year,
                     calendar.month_name[item.month],
                     item.title,
-                    item.ticker,
-                    quantity,
-                    item.bought_price,
-                    current_price,
-                    value,
+                    item.amount,
+                    item.price,
+                    item.value,
                 ]
             )
 
