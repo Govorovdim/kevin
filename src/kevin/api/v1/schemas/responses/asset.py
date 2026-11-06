@@ -10,9 +10,9 @@ class AssetResponse(BaseModel):
 
     id: int
     title: str
-    ticker: str | None
+    price: JsonDecimal
     amount: JsonDecimal | None
-    bought_price: JsonDecimal | None
-    current_price: JsonDecimal | None
+    carried_forward: bool
+    previous_asset_id: int | None
     created_at: datetime
     updated_at: datetime

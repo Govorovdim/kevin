@@ -28,18 +28,7 @@ class OverviewService:
 
         total_income = sum((i.amount for i in income), Decimal(0))
         total_expenses = sum((e.amount for e in expenses), Decimal(0))
-        portfolio_value = sum(
-            (
-                (a.amount if a.amount is not None else Decimal(1))
-                * (
-                    a.current_price
-                    if a.current_price is not None
-                    else (a.bought_price if a.bought_price is not None else Decimal(0))
-                )
-                for a in assets
-            ),
-            Decimal(0),
-        )
+        portfolio_value = sum((a.value for a in assets), Decimal(0))
         total_debt = sum((lb.amount for lb in liabilities), Decimal(0))
 
         return MonthOverview(
@@ -102,18 +91,7 @@ class OverviewService:
             else []
         )
 
-        portfolio_value = sum(
-            (
-                (a.amount if a.amount is not None else Decimal(1))
-                * (
-                    a.current_price
-                    if a.current_price is not None
-                    else (a.bought_price if a.bought_price is not None else Decimal(0))
-                )
-                for a in last_assets
-            ),
-            Decimal(0),
-        )
+        portfolio_value = sum((a.value for a in last_assets), Decimal(0))
         total_debt = sum((lb.amount for lb in last_liabilities), Decimal(0))
 
         return YearOverview(

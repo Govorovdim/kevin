@@ -18,7 +18,13 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
 
-    model_config = {"env_file": ".env", "env_prefix": "KEVIN_"}
+    model_config = {
+        "env_file": ".env",
+        "env_prefix": "KEVIN_",
+        # Ignore unrelated variables injected by the environment (e.g. deployment
+        # secrets) instead of refusing to start.
+        "extra": "ignore",
+    }
 
     @model_validator(mode="after")
     def fix_database_driver(self) -> "Settings":

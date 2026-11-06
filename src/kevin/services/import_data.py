@@ -3,6 +3,7 @@ from __future__ import annotations
 import calendar
 from decimal import Decimal
 from io import BytesIO
+from typing import Any
 
 from openpyxl import load_workbook
 
@@ -94,33 +95,56 @@ class ImportService:
         # --- Assets ---
         if "Assets" in wb.sheetnames:
             ws = wb["Assets"]
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                if not row or row[0] is None:
+            rows = ws.iter_rows(values_only=True)
+            header_row = next(rows, None)
+            headers = [
+                str(value).strip().lower() if value is not None else ""
+                for value in (header_row or [])
+            ]
+
+            def find_column(*prefixes: str) -> int | None:
+                for index, header in enumerate(headers):
+                    if header.startswith(prefixes):
+                        return index
+                return None
+
+            columns = {
+                "year": find_column("year"),
+                "month": find_column("month"),
+                "title": find_column("title"),
+                "amount": find_column("amount", "quantity"),
+                "price": find_column("price"),
+                # Legacy exports had separate bought/current prices.
+                "bought_price": find_column("bought price"),
+                "current_price": find_column("current price"),
+            }
+
+            def cell(row: tuple, key: str) -> Any:
+                index = columns[key]
+                if index is None or index >= len(row):
+                    return None
+                return row[index]
+
+            for row in rows:
+                year = cell(row, "year")
+                if not row or year is None:
                     continue
-                # Columns: Year, Month, Title, Ticker, Quantity, Bought Price, Current Price, Value
-                year = row[0]
-                month_raw = row[1]
-                title = row[2]
-                ticker = row[3] if len(row) > 3 else None
-                quantity = row[4] if len(row) > 4 else None
-                bought_price = row[5] if len(row) > 5 else None
-                current_price = row[6] if len(row) > 6 else None
-                # Value (col 7) is computed, skip it
-                month = self._parse_month(month_raw)
+                month = self._parse_month(cell(row, "month"))
+                title = cell(row, "title")
+                quantity = cell(row, "amount")
+                price = cell(row, "price")
+                if price is None:
+                    current_price = cell(row, "current_price")
+                    bought_price = cell(row, "bought_price")
+                    price = current_price if current_price is not None else bought_price
                 session.add(
                     Asset(
                         household_id=household_id,
                         year=int(year),
                         month=month,
                         title=str(title),
-                        ticker=str(ticker) if ticker else None,
+                        price=Decimal(str(price)) if price is not None else Decimal(0),
                         amount=Decimal(str(quantity)) if quantity is not None else None,
-                        bought_price=Decimal(str(bought_price))
-                        if bought_price is not None
-                        else None,
-                        current_price=Decimal(str(current_price))
-                        if current_price is not None
-                        else None,
                     )
                 )
                 counts["assets"] += 1

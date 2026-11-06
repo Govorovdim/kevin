@@ -9,10 +9,12 @@ from kevin.exceptions import AuthenticationError
 from kevin.models.household import Household
 from kevin.models.refresh_token import RefreshToken
 from kevin.models.user import User
+from kevin.repositories.asset import AssetRepository
 from kevin.repositories.household import HouseholdRepository
 from kevin.repositories.refresh_token import RefreshTokenRepository
 from kevin.repositories.user import UserRepository
 from kevin.repositories.user_household import UserHouseholdRepository
+from kevin.services.asset import AssetService
 from kevin.settings import settings
 
 
@@ -23,11 +25,13 @@ class AuthService:
         household_repo: HouseholdRepository,
         user_household_repo: UserHouseholdRepository,
         refresh_token_repo: RefreshTokenRepository | None = None,
+        asset_repo: AssetRepository | None = None,
     ) -> None:
         self.user_repo = user_repo
         self.household_repo = household_repo
         self.user_household_repo = user_household_repo
         self.refresh_token_repo = refresh_token_repo
+        self.asset_service = AssetService(asset_repo) if asset_repo else None
 
     def register(
         self, username: str, password: str, invite_token: str | None = None
@@ -60,9 +64,19 @@ class AuthService:
             password.encode(), user.hashed_password.encode()
         ):
             raise AuthenticationError("Invalid username or password")
+        self._carry_forward_assets(user.id)
         access_token = self._create_access_token({"sub": str(user.id)})
         refresh_token = self._create_refresh_token(user.id)
         return {"access_token": access_token, "refresh_token": refresh_token}
+
+    def _carry_forward_assets(self, user_id: int) -> None:
+        if not self.asset_service:
+            return
+        now = datetime.now(timezone.utc)
+        for household_id in self.user_household_repo.list_household_ids(user_id):
+            self.asset_service.carry_forward_previous_month(
+                household_id, now.year, now.month
+            )
 
     def refresh(self, refresh_token_raw: str) -> dict[str, str]:
         """Validate a refresh token, rotate it, and return new token pair."""

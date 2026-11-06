@@ -5,6 +5,7 @@ from sqlmodel import Session
 from kevin.database import get_session
 from kevin.exceptions import AuthenticationError
 from kevin.models.user import User
+from kevin.repositories.asset import AssetRepository
 from kevin.repositories.household import HouseholdRepository
 from kevin.repositories.refresh_token import RefreshTokenRepository
 from kevin.repositories.user import UserRepository
@@ -20,6 +21,7 @@ def get_auth_service(session: Session = Depends(get_session)) -> AuthService:
         HouseholdRepository(session),
         UserHouseholdRepository(session),
         RefreshTokenRepository(session),
+        AssetRepository(session),
     )
 
 

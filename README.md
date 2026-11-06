@@ -15,7 +15,6 @@ A deployed demo is available at https://wackyduckling.com/kevin/
 - Monthly tracking of income, expenses, assets, and liabilities
 - Yearly overview with interactive charts
 - Excel import/export
-- Stock ticker search via Yahoo Finance
 - Cross-platform (iOS, Android, Web)
 
 ## Tech Stack
